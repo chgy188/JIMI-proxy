@@ -6,6 +6,8 @@
 
 一个开关就能开/关系统全局代理，能改代理地址和端口，还带一个"测试代理是否可用"按钮。因为要面向遥控器操作，所有可交互元素都有明显的焦点高亮。
 
+现成 APK：[Releases](https://github.com/chgy188/JIMI-proxy/releases)（打 tag 后由 GitHub Actions 自动构建并发布）。
+
 ![已开启](screenshots/01-已开启.png)
 
 ## 它做了什么
