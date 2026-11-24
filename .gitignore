@@ -7,3 +7,6 @@ Thumbs.db
 *.log
 .idea/
 *.iml
+
+# apksigner v4 签名旁产物
+*.idsig
