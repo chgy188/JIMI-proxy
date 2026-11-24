@@ -60,11 +60,32 @@ Manifest 里需要的权限（缺一不可）：
 
 ```powershell
 # 需要：build-tools 35.0.0、platforms/android-31、JDK 17（JAVA_HOME）
+# 三个参数都可省：-VersionName、-VersionCode、-OutFile
 .\build.ps1
-# 输出 ProxySwitch.apk（BUILD OK <bytes>）
+.\build.ps1 -VersionName 1.2.0 -VersionCode 5 -OutFile .\dist\ProxySwitch-1.2.0.apk
+# 输出 BUILD OK <bytes>  ->  <path>
 ```
 
+`SDK` 位置从 `ANDROID_SDK_ROOT` / `ANDROID_HOME` 取，都没有才退回本机的 `%LOCALAPPDATA%\Android\Sdk`。版本号是**改清单副本**注入的——`aapt2 link` 的 `--version-code` 只在清单没声明时生效，而这份清单里写了，所以脚本会先复制一份 `AndroidManifest.xml` 改掉 `versionCode/versionName` 再链接。
+
 要换签名就把 `platform-keys/testkey.pk8`、`testkey.x509.pem` 替换成设备真正的 platform key。
+
+### 自动构建 / 发布（GitHub Actions）
+
+`.github/workflows/build-apk.yml`，跑在 `windows-latest`，流程就是上面的手工链，额外做了版本号注入和签名校验。
+
+| 触发 | 行为 |
+| --- | --- |
+| push 到 `main` | 构建，APK 作为 Actions artifact（保留 90 天），不发 Release |
+| 打 `v*` 标签（如 `v1.0.0`） | 构建 + 自动创建 Release，把 `ProxySwitch-<版本>.apk` 挂上去，并自动生成 release notes |
+| Actions 页面手动触发 | 只构建，不发布 |
+
+```powershell
+git tag v1.0.0
+git push origin v1.0.0     # 打完标签就会自动出 Release
+```
+
+标签名去掉前面的 `v` 就是 `versionName`，`versionCode` 取 workflow 的 `run_number`（单调整数，够升级用）。想完全不靠标签也可以手动跑一次 workflow。
 
 ## 目录
 

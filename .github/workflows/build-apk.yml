@@ -1,0 +1,94 @@
+name: build-apk
+
+# push 到 main：只构建（产物留在 Actions 里）
+# 打 v* 标签：构建 + 自动建 Release 并挂上 APK
+# 也可以在 Actions 页面手动触发，仅构建不发布
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 准备 JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: 安装 Android SDK 组件
+        shell: pwsh
+        run: |
+          $sdk = $env:ANDROID_HOME
+          if (-not $sdk) { $sdk = $env:ANDROID_SDK_ROOT }
+          Write-Output "ANDROID_HOME=$sdk"
+          $aapt2 = Join-Path $sdk "build-tools\35.0.0\aapt2.exe"
+          $ajar  = Join-Path $sdk "platforms\android-31\android.jar"
+
+          if ((-not (Test-Path $aapt2)) -or (-not (Test-Path $ajar))) {
+            $sm = Join-Path $sdk "cmdline-tools\latest\bin\sdkmanager.bat"
+            if (-not (Test-Path $sm)) {
+              $sm = (Get-ChildItem "$sdk\cmdline-tools" -Recurse -Filter sdkmanager.bat -ErrorAction SilentlyContinue |
+                     Select-Object -First 1).FullName
+            }
+            if (-not $sm) { throw "找不到 sdkmanager.bat" }
+            $y = ("y`n" * 30)
+            $y | & $sm --licenses | Out-Null
+            $y | & $sm --install "platforms;android-31" "build-tools;35.0.0" | Out-Null
+            Write-Output "sdkmanager exit=$LASTEXITCODE（包已存在时会非 0，下面按文件存在性判断）"
+          }
+
+          if (-not (Test-Path $aapt2)) { throw "缺少 build-tools 35.0.0 → $aapt2" }
+          if (-not (Test-Path $ajar))  { throw "缺少 platforms android-31 → $ajar" }
+          Write-Output "SDK 组件就绪"
+
+      - name: 计算版本号
+        id: ver
+        shell: pwsh
+        run: |
+          if ("${{ github.ref_type }}" -eq "tag") {
+            $name = "${{ github.ref_name }}".TrimStart("v")
+          } else {
+            $name = "1.0.${{ github.run_number }}"
+          }
+          "name=$name"   >> $env:GITHUB_OUTPUT
+          "code=${{ github.run_number }}" >> $env:GITHUB_OUTPUT
+          Write-Output "version=$name / code=${{ github.run_number }}"
+
+      - name: 构建 APK
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force "$env:GITHUB_WORKSPACE\dist" | Out-Null
+          $out = Join-Path $env:GITHUB_WORKSPACE "dist\ProxySwitch-${{ steps.ver.outputs.name }}.apk"
+          .\build.ps1 -VersionName "${{ steps.ver.outputs.name }}" -VersionCode ${{ steps.ver.outputs.code }} -OutFile $out
+          & "$env:ANDROID_HOME\build-tools\35.0.0\apksigner.bat" verify --verbose --print-certs $out
+
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: ProxySwitch-${{ steps.ver.outputs.name }}
+          path: dist/*.apk
+          if-no-files-found: error
+
+      - name: 发布到 Release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.apk
+          generate_release_notes: true
+          body: |
+            极米 H1S（Android 5.1.1）实测可用的系统全局 HTTP 代理开关。
+
+            安装：设备为 test-keys 构建时，用设备自己的 platform key 签名后直接安装；
+            否则把 APK 放进 `/system/priv-app/` 后重启（详见 README）。
+            本产物使用仓库内的 AOSP testkey 签名，仅作构建流程示例。
